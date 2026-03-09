@@ -640,9 +640,9 @@ function appendBar(h){
 }
 
 // ═══════════════════════════════════════════════════════
-//  WAVEFORM  — driven by audio currentTime
+//  WAVEFORM  — always-running rAF, driven by audioEl.currentTime
 // ═══════════════════════════════════════════════════════
-const BAR_W = 5; // bar width + gap in px
+const BAR_W = 5;
 
 function buildWaveform(){
   waveHeights = [];
@@ -667,61 +667,46 @@ function appendBar(h){
   waveformEl.appendChild(b);
 }
 
-// Animate bar heights around the playhead for a "live" feel
-let waveAnimFrame = null;
-function animateWave(){
-  if(!hasAudio || !audioDur) return;
-  const bars = waveformEl.querySelectorAll('.wbar');
+// Single always-running loop — no start/stop needed
+function waveLoop(){
+  requestAnimationFrame(waveLoop);
+
+  if(!hasAudio || !audioDur || !waveHeights.length) return;
+
+  const bars = waveformEl.children;
   if(!bars.length) return;
 
-  const prog   = audioEl.currentTime / audioDur;          // 0–1
-  const centre = Math.floor(prog * bars.length);          // current bar index
+  const prog   = audioEl.currentTime / audioDur;
+  const centre = Math.floor(prog * bars.length);
+  const isPlaying = !audioEl.paused && !audioEl.ended;
 
-  bars.forEach((b, i) => {
-    // Colour: played vs unplayed
+  for(let i = 0; i < bars.length; i++){
+    const b = bars[i];
+
+    // Colour
     b.className = 'wbar ' + (i <= centre ? 'played' : 'unplayed');
 
-    // Height: bars near playhead pulse slightly
-    const dist  = Math.abs(i - centre);
-    const pulse = dist < 8 ? 1 + 0.18 * Math.cos((dist / 8) * Math.PI) * (audioEl.paused ? 0 : 1) : 1;
-    b.style.height = (waveHeights[i] * pulse).toFixed(1) + 'px';
-  });
+    // Height pulse near playhead only when playing
+    if(isPlaying){
+      const dist  = Math.abs(i - centre);
+      const pulse = dist < 10
+        ? 1 + 0.22 * Math.cos((dist / 10) * Math.PI)
+        : 1;
+      b.style.height = (waveHeights[i] * pulse).toFixed(1) + 'px';
+    } else {
+      b.style.height = waveHeights[i] + 'px';
+    }
+  }
 
-  // Scroll strip so the playhead line stays centred
+  // Keep playhead centred
   const wrapW = waveformEl.parentElement.offsetWidth;
   const off   = centre * BAR_W - wrapW / 2;
   waveformEl.style.transform = `translateX(${-Math.max(0, off)}px)`;
-
-  waveAnimFrame = requestAnimationFrame(animateWave);
 }
 
-function startWaveAnim(){
-  if(waveAnimFrame) cancelAnimationFrame(waveAnimFrame);
-  animateWave();
-}
-function stopWaveAnim(){
-  if(waveAnimFrame){ cancelAnimationFrame(waveAnimFrame); waveAnimFrame = null; }
-  // Do one final static update so colours stay correct when paused
-  if(hasAudio && audioDur){
-    const bars  = waveformEl.querySelectorAll('.wbar');
-    const prog  = audioEl.currentTime / audioDur;
-    const c     = Math.floor(prog * bars.length);
-    bars.forEach((b, i) => {
-      b.className  = 'wbar ' + (i <= c ? 'played' : 'unplayed');
-      b.style.height = waveHeights[i] + 'px';
-    });
-    const wrapW = waveformEl.parentElement.offsetWidth;
-    waveformEl.style.transform = `translateX(${-Math.max(0, c * BAR_W - wrapW / 2)}px)`;
-  }
-}
+waveLoop(); // kick off once — runs forever
 
-// Hook into audio events
-audioEl.addEventListener('play',  startWaveAnim);
-audioEl.addEventListener('pause', stopWaveAnim);
-audioEl.addEventListener('ended', stopWaveAnim);
-audioEl.addEventListener('seeked', ()=>{ if(audioEl.paused) stopWaveAnim(); });
-
-function updateWaveform(){ /* no-op — animation loop handles it now */ }
+function updateWaveform(){} // kept for any legacy call sites
 
 // ═══════════════════════════════════════════════════════
 //  FILM RENDER
