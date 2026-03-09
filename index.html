@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Walk Memories</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+
+<!--
+  ╔══════════════════════════════════════════════════════╗
+  ║  CONFIGURATION — fill in after Supabase setup        ║
+  ╚══════════════════════════════════════════════════════╝
+  Replace the two placeholder strings below with your
+  actual values from supabase.com → Project Settings → API
+-->
+<script>
+  const SUPABASE_URL    = 'https://nzgnlirtfibunmscvivq.supabase.co';
+  const SUPABASE_ANON   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56Z25saXJ0ZmlidW5tc2N2aXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNTI3ODYsImV4cCI6MjA4ODYyODc4Nn0.5dMDDHxXBY4slvj-jB6-qg_tHQi7EPd0mpa41GvTK7w';
+  const BUCKET          = 'memories';
+</script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0b09;
+  --phone:#1a1410;
+  --cream:#f5f0e8;
+  --red:#e84040;
+  --red-dim:rgba(232,64,64,0.32);
+  --muted:rgba(245,240,232,0.48);
+  --dim:rgba(245,240,232,0.22);
+  --silver:#c8c8d0;
+}
+html,body{width:100%;height:100%;overflow:hidden;touch-action:none}
+body{
+  background:var(--bg);
+  background-image:
+    radial-gradient(ellipse at 28% 18%,rgba(70,45,18,0.3) 0%,transparent 58%),
+    radial-gradient(ellipse at 72% 82%,rgba(50,28,8,0.18) 0%,transparent 52%);
+  font-family:'DM Mono',monospace;
+  display:flex;justify-content:center;align-items:stretch;
+  color:var(--cream);
+}
+
+/* On wide screens, centre a column of max 480px */
+@media(min-width:600px){
+  body{ align-items:center; }
+  .phone{
+    width:min(480px, 100vw) !important;
+    height:min(860px, 100vh) !important;
+    border-radius:32px !important;
+    box-shadow:0 0 0 1px rgba(255,255,255,0.06),0 40px 80px rgba(0,0,0,.7) !important;
+  }
+  .phone::before{ display:block !important; }
+}
+
+/* ─── Phone shell — fills entire screen on every device ─── */
+.phone{
+  width:100vw;
+  height:100vh;
+  height:100dvh; /* dynamic viewport height for mobile browsers */
+  background:var(--phone);
+  border-radius:0;
+  box-shadow:none;
+  position:relative;overflow:hidden;
+  display:flex;flex-direction:column;
+}
+/* No notch on full-screen mode */
+.phone::before{ display:none; }
+
+/* Status bar */
+.sbar{display:flex;justify-content:space-between;align-items:center;
+  padding: env(safe-area-inset-top, 16px) 24px 8px;
+  padding-top: max(env(safe-area-inset-top), 20px);
+  font-size:10px;color:var(--muted);flex-shrink:0}
+.icons{display:flex;gap:4px;align-items:center}
+.dot{width:5px;height:5px;border-radius:50%;background:var(--dim)}
+.dot.on{background:var(--muted)}
+
+/* Header */
+.header{text-align:center;padding:4px 0 12px;flex-shrink:0}
+.header h1{font-family:'Cormorant Garamond',serif;font-size:clamp(16px,4vw,22px);font-style:italic;font-weight:300;letter-spacing:.08em;color:rgba(245,240,232,0.62)}
+
+/* ─── Film viewer ─── */
+.viewer{
+  margin:0 16px;
+  height:clamp(180px, 36vh, 320px);
+  background:var(--cream);border-radius:14px;overflow:hidden;position:relative;
+  box-shadow:inset 0 2px 8px rgba(0,0,0,.18);flex-shrink:0;
+}
+.viewer::after{content:'';position:absolute;top:0;bottom:0;left:50%;width:2px;background:linear-gradient(to bottom,transparent,var(--red) 22%,var(--red) 78%,transparent);opacity:.82;z-index:5;pointer-events:none}
+.film-strip{display:flex;height:100%;will-change:transform}
+.film-frame{position:relative;flex-shrink:0;width:clamp(160px,50vw,240px);height:100%;margin-right:8px}
+.film-frame img{width:100%;height:100%;object-fit:cover;display:block}
+.film-frame::before{content:'';position:absolute;inset:0;border:8px solid white;border-bottom-width:24px;pointer-events:none;z-index:2;box-shadow:2px 2px 12px rgba(0,0,0,.14)}
+.time-disp{position:absolute;top:8px;left:12px;font-size:9px;color:rgba(0,0,0,.32);letter-spacing:.08em;z-index:6;pointer-events:none}
+
+/* ─── Waveform (no background box) ─── */
+.waveform-wrap{margin:10px 16px 0;height:clamp(52px,10vh,80px);background:transparent;overflow:hidden;position:relative;flex-shrink:0}
+.waveform-wrap::after{content:'';position:absolute;top:6px;bottom:6px;left:50%;width:1.5px;background:rgba(255,255,255,0.5);z-index:3;pointer-events:none}
+.waveform-inner{display:flex;align-items:center;height:100%;padding:0 8px;gap:2px;will-change:transform}
+.wbar{width:3px;border-radius:2px;flex-shrink:0}
+.wbar.played{background:var(--red)}
+.wbar.unplayed{background:var(--red-dim)}
+
+/* ─── Handle area ─── */
+.handle-area{flex:1;display:flex;align-items:center;justify-content:center;position:relative;min-height:100px}
+.key-handle{
+  /* Container is the size of one full rotation diameter + ball radius */
+  width:clamp(100px,26vw,160px);
+  height:clamp(100px,26vw,160px);
+  cursor:grab;user-select:none;touch-action:none;
+  /* overflow visible so the ball can swing freely outside the box */
+  overflow:visible;
+  filter:drop-shadow(0 6px 24px rgba(0,0,0,.7));
+  position:relative;
+  z-index:5;
+}
+.key-handle:active{cursor:grabbing}
+.key-svg{width:100%;height:100%;overflow:visible;}
+
+/* ─── Controls ─── */
+.controls{
+  padding:12px 20px max(env(safe-area-inset-bottom,16px),20px);
+  display:flex;flex-direction:column;gap:6px;flex-shrink:0;
+}
+.file-row{display:flex;gap:8px}
+.file-btn{flex:1;position:relative;overflow:hidden}
+.file-btn input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0}
+.file-btn label{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;background:rgba(255,255,255,0.055);border:1px solid rgba(255,255,255,0.09);border-radius:8px;font-size:10px;letter-spacing:.08em;color:var(--muted);cursor:pointer;pointer-events:none}
+.status-text{text-align:center;font-size:9px;letter-spacing:.1em;color:var(--dim);text-transform:uppercase;min-height:12px}
+.save-link{text-align:center;font-size:9px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase;cursor:pointer;line-height:1.6}
+.save-link .here{text-decoration:underline;text-underline-offset:2px;color:rgba(245,240,232,0.36);transition:color .2s}
+.save-link:hover .here,.save-link:active .here{color:var(--muted)}
+
+/* ─── Toast ─── */
+.toast{position:absolute;bottom:100px;left:50%;transform:translateX(-50%);background:rgba(210,210,220,0.92);color:#1a1410;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:6px 16px;border-radius:20px;opacity:0;pointer-events:none;transition:opacity .3s;white-space:nowrap;z-index:40}
+.toast.show{opacity:1}
+
+/* ─── Loading overlay ─── */
+.exh-loading{position:absolute;inset:0;border-radius:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--phone);z-index:50}
+.exh-loading p{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:14px;color:var(--muted);letter-spacing:.1em}
+.spinner{width:24px;height:24px;border:2px solid rgba(200,200,215,0.18);border-top-color:var(--silver);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ════════════════════════════════════
+   HISTORY PANEL (top-right corner)
+   ════════════════════════════════════ */
+.hist-btn{
+  position:absolute;top:max(env(safe-area-inset-top),16px);right:16px;
+  width:36px;height:36px;
+  background:rgba(245,240,232,0.07);
+  border:1px solid rgba(245,240,232,0.12);
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;z-index:100;
+  transition:background .2s,border-color .2s;
+}
+.hist-btn:hover{background:rgba(245,240,232,0.14);border-color:rgba(245,240,232,0.25)}
+.hist-btn svg{width:16px;height:16px;opacity:.6}
+
+/* Drawer — inside phone */
+.hist-drawer{
+  position:absolute;top:0;right:0;bottom:0;
+  width:85%;max-width:360px;
+  background:#151210;
+  border-left:1px solid rgba(255,255,255,0.07);
+  transform:translateX(100%);
+  transition:transform .32s cubic-bezier(.22,.68,0,1);
+  z-index:200;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+}
+.hist-drawer.open{transform:translateX(0)}
+
+.hist-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:28px 20px 16px;
+  border-bottom:1px solid rgba(255,255,255,0.06);
+  flex-shrink:0;
+}
+.hist-head h2{font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:300;font-size:16px;letter-spacing:.08em;color:rgba(245,240,232,0.6)}
+.hist-close{cursor:pointer;opacity:.4;transition:opacity .2s;padding:4px}
+.hist-close:hover{opacity:.8}
+.hist-close svg{width:16px;height:16px}
+
+.hist-list{flex:1;overflow-y:auto;padding:12px 0}
+.hist-list::-webkit-scrollbar{width:3px}
+.hist-list::-webkit-scrollbar-track{background:transparent}
+.hist-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
+
+.hist-empty{padding:40px 20px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+
+.hist-item{
+  display:flex;align-items:center;gap:12px;
+  padding:12px 20px;
+  cursor:pointer;
+  border-bottom:1px solid rgba(255,255,255,0.04);
+  transition:background .15s;
+}
+.hist-item:hover{background:rgba(255,255,255,0.04)}
+.hist-thumb{
+  width:52px;height:40px;border-radius:6px;
+  object-fit:cover;flex-shrink:0;
+  border:2px solid rgba(255,255,255,0.12);
+}
+.hist-thumb-placeholder{
+  width:52px;height:40px;border-radius:6px;flex-shrink:0;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.08);
+}
+.hist-info{flex:1;min-width:0}
+.hist-date{font-size:9px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase;margin-bottom:3px}
+.hist-meta{font-size:8px;letter-spacing:.06em;color:rgba(245,240,232,0.25)}
+.hist-share{
+  font-size:8px;letter-spacing:.06em;color:rgba(245,240,232,0.3);
+  text-decoration:underline;text-underline-offset:2px;
+  cursor:pointer;padding:4px;flex-shrink:0;
+  transition:color .15s;
+}
+.hist-share:hover{color:var(--muted)}
+
+/* Backdrop */
+.hist-backdrop{
+  position:absolute;inset:0;background:rgba(0,0,0,0);
+  z-index:199;pointer-events:none;
+  transition:background .32s;
+}
+.hist-backdrop.open{background:rgba(0,0,0,0.5);pointer-events:auto}
+</style>
+</head>
+<body>
+
+<!-- ═══ PHONE ═══ -->
+<div class="phone" id="phone">
+
+  <!-- History button, backdrop, drawer live inside phone so they scale with it -->
+  <div class="hist-btn" id="histBtn" title="View saved memories">
+    <svg viewBox="0 0 24 24" fill="none" stroke="rgba(245,240,232,0.7)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+    </svg>
+  </div>
+  <div class="hist-backdrop" id="histBackdrop"></div>
+  <div class="hist-drawer" id="histDrawer">
+    <div class="hist-head">
+      <h2>Saved memories</h2>
+      <div class="hist-close" id="histClose">
+        <svg viewBox="0 0 24 24" fill="none" stroke="rgba(245,240,232,0.7)" stroke-width="2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </div>
+    </div>
+    <div class="hist-list" id="histList">
+      <div class="hist-empty">No saved memories yet</div>
+    </div>
+  </div>
+
+  <div class="sbar">
+    <span id="clockEl">9:39</span>
+    <div class="icons">
+      <div class="dot on"></div><div class="dot on"></div><div class="dot"></div>
+    </div>
+  </div>
+
+  <div class="header"><h1>Walk memories</h1></div>
+
+  <div class="viewer">
+    <div class="time-disp" id="timeDsp">0:00 / 0:00</div>
+    <div class="film-strip" id="filmStrip"></div>
+  </div>
+
+  <div class="waveform-wrap">
+    <div class="waveform-inner" id="waveformEl"></div>
+  </div>
+
+  <div class="handle-area" id="handleArea">
+    <div class="key-handle" id="keyHandle">
+      <!--
+        viewBox is 200×200. Pivot is at the exact centre (100,100).
+        Arm length = 80px upward. Ball centre at (100,20), r=18.
+        With overflow:visible the ball can swing to any angle freely.
+      -->
+      <svg class="key-svg" id="keySvg" viewBox="0 0 200 200" fill="none" overflow="visible">
+        <!-- Rotating arm: shaft + ball -->
+        <g id="keyArm">
+          <rect x="96.5" y="22" width="7" height="78" rx="3.5" fill="url(#shaft)"/>
+          <circle cx="100" cy="18" r="18" fill="url(#ring)"/>
+        </g>
+        <!-- Fixed pivot dot at centre — does NOT rotate -->
+        <circle cx="100" cy="100" r="7" fill="url(#btm)"/>
+        <defs>
+          <linearGradient id="shaft" x1="100" y1="22" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#e0e0e8"/>
+            <stop offset="100%" stop-color="#8a8a96"/>
+          </linearGradient>
+          <radialGradient id="ring" cx="38%" cy="34%" r="62%">
+            <stop offset="0%" stop-color="#f0f0f6"/>
+            <stop offset="45%" stop-color="#c4c4d0"/>
+            <stop offset="100%" stop-color="#6e6e80"/>
+          </radialGradient>
+          <radialGradient id="btm" cx="38%" cy="34%" r="70%">
+            <stop offset="0%" stop-color="#e0e0e8"/>
+            <stop offset="100%" stop-color="#707080"/>
+          </radialGradient>
+        </defs>
+      </svg>
+    </div>
+  </div>
+
+  <div class="controls" id="editControls">
+    <div class="file-row">
+      <div class="file-btn">
+        <input type="file" id="imgInput" multiple accept="image/*">
+        <label>📷 Photos</label>
+      </div>
+      <div class="file-btn">
+        <input type="file" id="audioInput" accept="audio/*">
+        <label>🎙 Audio</label>
+      </div>
+    </div>
+    <div class="status-text" id="statusTxt">Upload photos &amp; audio to begin</div>
+    <div class="save-link" id="saveLink">click <span class="here">here</span> to save current work</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<audio id="audioEl"></audio>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  CONFIG CHECK
+// ═══════════════════════════════════════════════════════
+const CONFIGURED = SUPABASE_URL !== 'YOUR_SUPABASE_URL';
+
+// ═══════════════════════════════════════════════════════
+//  SUPABASE HELPERS  (tiny fetch-based client, no SDK needed)
+// ═══════════════════════════════════════════════════════
+const SB = {
+  headers(){
+    return {
+      'apikey': SUPABASE_ANON,
+      'Authorization': 'Bearer ' + SUPABASE_ANON,
+    };
+  },
+
+  // Upload a single file blob → storage
+  async uploadFile(path, blob, contentType){
+    const res = await fetch(
+      `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${path}`,
+      {
+        method: 'POST',
+        headers: { ...this.headers(), 'Content-Type': contentType, 'x-upsert': 'true' },
+        body: blob,
+      }
+    );
+    if(!res.ok) throw new Error(`Upload failed: ${await res.text()}`);
+    return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`;
+  },
+
+  // Save metadata record to Postgres table
+  async insertRecord(row){
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/memories`,
+      {
+        method: 'POST',
+        headers: { ...this.headers(), 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+        body: JSON.stringify(row),
+      }
+    );
+    if(!res.ok) throw new Error(`DB insert failed: ${await res.text()}`);
+    return res.json();
+  },
+
+  // Fetch single memory by key
+  async getRecord(key){
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/memories?key=eq.${encodeURIComponent(key)}&limit=1`,
+      { headers: this.headers() }
+    );
+    if(!res.ok) throw new Error(`DB fetch failed: ${await res.text()}`);
+    const rows = await res.json();
+    return rows[0] || null;
+  },
+
+  // List all memories (for history panel)
+  async listRecords(){
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/memories?order=saved_at.desc&limit=50`,
+      { headers: this.headers() }
+    );
+    if(!res.ok) throw new Error(`List failed: ${await res.text()}`);
+    return res.json();
+  },
+};
+
+// ═══════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════
+const FRAME_W     = 208;
+const FILM_SENS   = 0.85;   // photo scroll speed
+const HANDLE_DAMP = 0.55;   // joystick sensitivity (lower = less sensitive)
+
+let imgFiles     = [];
+let imgObjURLs   = [];
+let audioFile    = null;
+let audioObjURL  = null;
+let waveHeights  = [];
+let audioDur     = 0;
+let hasAudio     = false;
+let hasImages    = false;
+let filmOffset   = 0;
+let keyRot       = 0;
+let isDragging   = false;
+let lastAngle    = null;
+
+// DOM
+const filmStrip  = document.getElementById('filmStrip');
+const waveformEl = document.getElementById('waveformEl');
+const audioEl    = document.getElementById('audioEl');
+const keyHandle  = document.getElementById('keyHandle');
+const handleArea = document.getElementById('handleArea');
+const timeDsp    = document.getElementById('timeDsp');
+const statusTxt  = document.getElementById('statusTxt');
+const editCtrls  = document.getElementById('editControls');
+const saveLink   = document.getElementById('saveLink');
+const toast      = document.getElementById('toast');
+
+// ═══════════════════════════════════════════════════════
+//  CLOCK & SCALE
+// ═══════════════════════════════════════════════════════
+function tick(){
+  const n=new Date();
+  document.getElementById('clockEl').textContent=
+    n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0');
+}
+tick(); setInterval(tick,15000);
+
+// (Responsive layout now handled entirely by CSS)
+
+// ═══════════════════════════════════════════════════════
+//  FILM STRIP
+// ═══════════════════════════════════════════════════════
+const FILM_COPIES = 5; // enough copies that we never see an edge
+
+function buildFilm(urls){
+  imgObjURLs = urls;
+  filmStrip.innerHTML = '';
+  for(let c = 0; c < FILM_COPIES; c++){
+    urls.forEach(src => {
+      const fr  = document.createElement('div');
+      fr.className = 'film-frame';
+      const img = document.createElement('img');
+      img.src = src;
+      fr.appendChild(img);
+      filmStrip.appendChild(fr);
+    });
+  }
+  filmOffset = 0; hasImages = true;
+  renderFilm();
+}
+
+document.getElementById('imgInput').onchange=e=>{
+  const files=[...e.target.files];
+  if(!files.length) return;
+  imgFiles=files;
+  imgObjURLs.forEach(u=>URL.revokeObjectURL(u));
+  imgObjURLs=files.map(f=>URL.createObjectURL(f));
+  buildFilm(imgObjURLs);
+  updateStatus();
+};
+
+// ═══════════════════════════════════════════════════════
+//  AUDIO
+// ═══════════════════════════════════════════════════════
+function loadAudioSrc(src){
+  audioEl.src=src;
+  audioEl.load();
+  audioEl.onloadedmetadata=()=>{
+    audioDur=audioEl.duration;
+    audioEl.playbackRate=1;
+    hasAudio=true;
+    buildWaveform();
+    updateStatus();
+  };
+}
+
+document.getElementById('audioInput').onchange=e=>{
+  const f=e.target.files[0];
+  if(!f) return;
+  audioFile=f;
+  if(audioObjURL) URL.revokeObjectURL(audioObjURL);
+  audioObjURL=URL.createObjectURL(f);
+  loadAudioSrc(audioObjURL);
+};
+
+audioEl.addEventListener('ratechange',()=>{
+  if(audioEl.playbackRate!==1) audioEl.playbackRate=1;
+});
+
+// ═══════════════════════════════════════════════════════
+//  WAVEFORM
+// ═══════════════════════════════════════════════════════
+function buildWaveform(){
+  waveHeights=[];
+  waveformEl.innerHTML='';
+  for(let i=0;i<160;i++){
+    const h=8+Math.random()*52;
+    waveHeights.push(h);
+    appendBar(h);
+  }
+}
+
+function loadWaveform(heights){
+  waveHeights=heights;
+  waveformEl.innerHTML='';
+  heights.forEach(h=>appendBar(h));
+}
+
+function appendBar(h){
+  const b=document.createElement('div');
+  b.className='wbar unplayed';
+  b.style.height=h+'px';
+  waveformEl.appendChild(b);
+}
+
+function updateWaveform(){
+  if(!waveHeights.length) return;
+  const bars=waveformEl.querySelectorAll('.wbar');
+  if(!bars.length) return;
+
+  // Scroll waveform in the same direction as photos, driven by filmOffset
+  const onePass = imgObjURLs.length * FRAME_W || 1;
+  const wrapped = ((filmOffset % onePass) + onePass) % onePass;
+  const waveProgress = wrapped / onePass; // 0–1, loops smoothly
+
+  const playedCount = Math.floor(waveProgress * bars.length);
+  bars.forEach((b,i)=>b.className='wbar '+(i<playedCount?'played':'unplayed'));
+
+  // Pan waveform strip so the playhead stays centred
+  const wrapW = waveformEl.parentElement.offsetWidth;
+  const off = playedCount * 5 - wrapW / 2;
+  waveformEl.style.transform=`translateX(${-Math.max(0,off)}px)`;
+
+  // Also update audio time display to match waveform position
+  if(audioDur && hasAudio){
+    const audioProg = audioEl.currentTime / audioDur;
+    const ac = Math.floor(audioProg * bars.length);
+    // override colour: audio played = bright, film lead = dim
+    bars.forEach((b,i)=>{
+      if(i < ac) b.className='wbar played';
+      else if(i < playedCount) b.className='wbar unplayed';
+      else b.className='wbar unplayed';
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  FILM RENDER
+// ═══════════════════════════════════════════════════════
+function renderFilm(){
+  if(!imgObjURLs.length) return;
+  const onePass = imgObjURLs.length * FRAME_W;          // width of one set of photos
+  // Keep filmOffset within [0, onePass) by normalising, then shift into copy 2 of 5
+  const wrapped = ((filmOffset % onePass) + onePass) % onePass;
+  // Offset into copy index 2 (0-based), so copies 0-1 are behind and 3-4 are ahead
+  const tx = wrapped + 2 * onePass;
+  filmStrip.style.transform = `translateX(${-tx}px)`;
+  timeDsp.textContent = fmt(hasAudio ? audioEl.currentTime : 0) + ' / ' + fmt(audioDur);
+}
+
+function fmt(s){
+  if(!s||isNaN(s)) return '0:00';
+  return Math.floor(s/60)+':'+Math.floor(s%60).toString().padStart(2,'0');
+}
+
+function updateStatus(){
+  if(hasImages&&hasAudio)  statusTxt.textContent='Wind the key to play';
+  else if(hasImages)        statusTxt.textContent='Now upload a voice note';
+  else if(hasAudio)         statusTxt.textContent='Now upload some photos';
+  else                      statusTxt.textContent='Upload photos & audio to begin';
+}
+
+// ═══════════════════════════════════════════════════════
+//  HANDLE
+//  Strategy: track pointer angle around the pivot dot's
+//  screen position. Rotate only #keyArm via SVG transform
+//  attribute: rotate(deg, 50, 78) — pivot at (50,78) in
+//  SVG user units. This is bulletproof cross-browser.
+// ═══════════════════════════════════════════════════════
+const keyArm = document.getElementById('keyArm');
+const PIVOT_SVG_X = 100;  // pivot x in SVG viewBox coords
+const PIVOT_SVG_Y = 100;  // pivot y in SVG viewBox coords
+
+function getPivotScreen(){
+  // Convert SVG pivot coords → screen coords
+  const svg = document.getElementById('keySvg');
+  const pt  = svg.createSVGPoint();
+  pt.x = PIVOT_SVG_X;
+  pt.y = PIVOT_SVG_Y;
+  const screen = pt.matrixTransform(svg.getScreenCTM());
+  return { x: screen.x, y: screen.y };
+}
+
+function ang(cx,cy,px,py){ return Math.atan2(py-cy, px-cx)*180/Math.PI; }
+
+keyHandle.addEventListener('pointerdown', e=>{
+  e.preventDefault();
+  isDragging = true;
+  keyHandle.setPointerCapture(e.pointerId);
+  const p = getPivotScreen();
+  lastAngle = ang(p.x, p.y, e.clientX, e.clientY);
+  if(hasAudio){ audioEl.play().catch(()=>{}); audioEl.pause(); }
+  handleArea.classList.add('winding');
+}, {passive:false});
+
+window.addEventListener('pointerup', ()=>{
+  if(!isDragging) return;
+  isDragging = false;
+  handleArea.classList.remove('winding');
+  if(hasAudio) audioEl.pause();
+  lastAngle = null;
+});
+
+window.addEventListener('pointermove', e=>{
+  if(!isDragging || lastAngle===null) return;
+  e.preventDefault();
+  const p = getPivotScreen();
+  const a = ang(p.x, p.y, e.clientX, e.clientY);
+  let d = a - lastAngle;
+  if(d >  180) d -= 360;
+  if(d < -180) d += 360;
+
+  keyRot += d;
+  keyArm.setAttribute('transform', `rotate(${keyRot} ${PIVOT_SVG_X} ${PIVOT_SVG_Y})`);
+
+  // Apply damping so small wrist movements don't over-scroll
+  const eff = d * HANDLE_DAMP;
+
+  if(Math.abs(d) > 0.5){
+    filmOffset += eff * FILM_SENS;
+    renderFilm();
+    if(hasAudio && audioDur > 0){
+      if(d > 0){ audioEl.playbackRate=1; if(audioEl.paused) audioEl.play().catch(()=>{}); }
+      else audioEl.pause();
+    }
+  } else {
+    if(hasAudio) audioEl.pause();
+  }
+  updateWaveform();
+  lastAngle = a;
+}, {passive:false});
+
+audioEl.addEventListener('timeupdate',()=>{renderFilm();updateWaveform();});
+
+// ═══════════════════════════════════════════════════════
+//  TOAST
+// ═══════════════════════════════════════════════════════
+let toastTimer=null;
+function showToast(msg,ms=2600){
+  toast.textContent=msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>toast.classList.remove('show'),ms);
+}
+
+// ═══════════════════════════════════════════════════════
+//  SAVE  →  Supabase Storage + DB
+// ═══════════════════════════════════════════════════════
+saveLink.addEventListener('click',async()=>{
+  if(!hasImages||!hasAudio){showToast('Add photos & audio first');return;}
+  if(!CONFIGURED){showToast('Add Supabase keys first',4000);return;}
+
+  showToast('Uploading…',30000);
+  try{
+    const key='mem_'+Date.now();
+    const folder=key;
+
+    // Upload images in parallel
+    const imgUrls=await Promise.all(
+      imgFiles.map((file,i)=>
+        SB.uploadFile(`${folder}/img_${i}.jpg`, file, file.type||'image/jpeg')
+      )
+    );
+
+    // Upload audio
+    const audioUrl=await SB.uploadFile(
+      `${folder}/audio.${audioFile.name.split('.').pop()||'m4a'}`,
+      audioFile,
+      audioFile.type||'audio/mpeg'
+    );
+
+    // Insert metadata row
+    await SB.insertRecord({
+      key,
+      saved_at: new Date().toISOString(),
+      img_urls: imgUrls,
+      audio_url: audioUrl,
+      wave_heights: waveHeights,
+    });
+
+    const url=new URL(location.href);
+    url.searchParams.set('view',key);
+    navigator.clipboard?.writeText(url.toString()).catch(()=>{});
+    showToast('Saved! Link copied ✓',3400);
+    refreshHistory();
+  }catch(err){
+    console.error(err);
+    showToast('Error: '+err.message.slice(0,40),5000);
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+//  HISTORY PANEL
+// ═══════════════════════════════════════════════════════
+const histBtn      = document.getElementById('histBtn');
+const histDrawer   = document.getElementById('histDrawer');
+const histBackdrop = document.getElementById('histBackdrop');
+const histClose    = document.getElementById('histClose');
+const histList     = document.getElementById('histList');
+
+function openHist(){histDrawer.classList.add('open');histBackdrop.classList.add('open')}
+function closeHist(){histDrawer.classList.remove('open');histBackdrop.classList.remove('open')}
+histBtn.addEventListener('click',()=>{openHist();refreshHistory();});
+histClose.addEventListener('click',closeHist);
+histBackdrop.addEventListener('click',closeHist);
+
+async function refreshHistory(){
+  if(!CONFIGURED){
+    histList.innerHTML='<div class="hist-empty">Configure Supabase to enable history</div>';
+    return;
+  }
+  histList.innerHTML='<div class="hist-empty">Loading…</div>';
+  try{
+    const rows=await SB.listRecords();
+    if(!rows.length){histList.innerHTML='<div class="hist-empty">No saved memories yet</div>';return;}
+    histList.innerHTML='';
+    rows.forEach(row=>{
+      const item=document.createElement('div');
+      item.className='hist-item';
+      const thumb=row.img_urls&&row.img_urls[0]
+        ?`<img class="hist-thumb" src="${row.img_urls[0]}" loading="lazy">`
+        :`<div class="hist-thumb-placeholder"></div>`;
+      const d=new Date(row.saved_at);
+      const dateStr=d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+      const timeStr=d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+      const imgCount=row.img_urls?row.img_urls.length:0;
+      item.innerHTML=`
+        ${thumb}
+        <div class="hist-info">
+          <div class="hist-date">${dateStr} · ${timeStr}</div>
+          <div class="hist-meta">${imgCount} photo${imgCount!==1?'s':''}</div>
+        </div>
+        <div class="hist-share" data-key="${row.key}">copy link</div>`;
+
+      // Click item → load it
+      item.addEventListener('click',e=>{
+        if(e.target.classList.contains('hist-share')) return;
+        closeHist();
+        loadFromRecord(row);
+      });
+
+      // Share button
+      item.querySelector('.hist-share').addEventListener('click',e=>{
+        e.stopPropagation();
+        const url=new URL(location.href);
+        url.searchParams.set('view',row.key);
+        navigator.clipboard?.writeText(url.toString()).catch(()=>{});
+        showToast('Link copied!');
+      });
+
+      histList.appendChild(item);
+    });
+  }catch(err){
+    histList.innerHTML=`<div class="hist-empty">Error loading: ${err.message}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  LOAD FROM SUPABASE RECORD
+// ═══════════════════════════════════════════════════════
+function loadFromRecord(rec){
+  buildFilm(rec.img_urls);
+  if(rec.wave_heights) loadWaveform(rec.wave_heights);
+  else buildWaveform();
+  audioObjURL=rec.audio_url;
+  loadAudioSrc(rec.audio_url);
+}
+
+// ═══════════════════════════════════════════════════════
+//  EXHIBITION MODE  (?view=key)
+// ═══════════════════════════════════════════════════════
+(async function initExhibition(){
+  const key=new URLSearchParams(location.search).get('view');
+  if(!key) return;
+  if(!CONFIGURED){showToast('Supabase not configured',4000);return;}
+
+  const ov=document.createElement('div');
+  ov.className='exh-loading';
+  ov.innerHTML='<div class="spinner"></div><p>Loading memory…</p>';
+  document.getElementById('phone').appendChild(ov);
+
+  try{
+    const rec=await SB.getRecord(key);
+    ov.remove();
+    if(!rec){showToast('Memory not found',3000);return;}
+    editCtrls.style.display='none';
+    histBtn.style.display='none';
+    loadFromRecord(rec);
+  }catch(err){
+    ov.remove();
+    showToast('Error: '+err.message,5000);
+  }
+})();
+</script>
+</body>
+</html>
