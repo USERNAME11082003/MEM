@@ -206,14 +206,44 @@ body{
 
 .hist-empty{padding:40px 20px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
 
+/* ── Swipe-to-delete row ── */
+.hist-row{
+  position:relative;
+  overflow:hidden;
+  border-bottom:1px solid rgba(255,255,255,0.04);
+  flex-shrink:0;
+}
+
+/* Red delete panel revealed on swipe */
+.hist-del-bg{
+  position:absolute;top:0;right:0;bottom:0;
+  width:80px;
+  background:#c0392b;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  flex-shrink:0;
+}
+.hist-del-bg span{
+  font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  color:#fff;font-family:'DM Mono',monospace;pointer-events:none;
+}
+
+/* The sliding foreground card */
 .hist-item{
   display:flex;align-items:center;gap:12px;
   padding:12px 20px;
   cursor:pointer;
-  border-bottom:1px solid rgba(255,255,255,0.04);
-  transition:background .15s;
+  background:#151210;
+  transform:translateX(0);
+  transition:transform .25s cubic-bezier(.25,.46,.45,.94);
+  position:relative;z-index:1;
+  will-change:transform;
+  touch-action:pan-y;
+  user-select:none;
 }
-.hist-item:hover{background:rgba(255,255,255,0.04)}
+.hist-item.swiped{ transform:translateX(-80px); }
+.hist-item:not(.swiped):active{ background:rgba(255,255,255,0.04); }
+
 .hist-thumb{
   width:52px;height:40px;border-radius:6px;
   object-fit:cover;flex-shrink:0;
@@ -227,10 +257,12 @@ body{
 .hist-info{flex:1;min-width:0}
 .hist-date{font-size:9px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase;margin-bottom:3px}
 .hist-meta{font-size:8px;letter-spacing:.06em;color:rgba(245,240,232,0.25)}
+
+/* copy-link sits inside the item, right side */
 .hist-share{
-  font-size:8px;letter-spacing:.06em;color:rgba(245,240,232,0.3);
+  font-size:8px;letter-spacing:.06em;color:rgba(245,240,232,0.28);
   text-decoration:underline;text-underline-offset:2px;
-  cursor:pointer;padding:4px;flex-shrink:0;
+  cursor:pointer;padding:4px 0 4px 8px;flex-shrink:0;
   transition:color .15s;
 }
 .hist-share:hover{color:var(--muted)}
@@ -408,6 +440,40 @@ const SB = {
     );
     if(!res.ok) throw new Error(`List failed: ${await res.text()}`);
     return res.json();
+  },
+
+  // Delete DB record
+  async deleteRecord(key){
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/memories?key=eq.${encodeURIComponent(key)}`,
+      { method: 'DELETE', headers: this.headers() }
+    );
+    if(!res.ok) throw new Error(`Delete failed: ${await res.text()}`);
+  },
+
+  // Delete all files in a storage folder (key = folder name)
+  async deleteFolder(key){
+    // List files in folder first
+    const listRes = await fetch(
+      `${SUPABASE_URL}/storage/v1/object/list/${BUCKET}`,
+      {
+        method: 'POST',
+        headers: { ...this.headers(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefix: key + '/', limit: 100 }),
+      }
+    );
+    if(!listRes.ok) return; // silently skip if listing fails
+    const files = await listRes.json();
+    if(!files.length) return;
+    const paths = files.map(f => `${key}/${f.name}`);
+    await fetch(
+      `${SUPABASE_URL}/storage/v1/object/${BUCKET}`,
+      {
+        method: 'DELETE',
+        headers: { ...this.headers(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefixes: paths }),
+      }
+    );
   },
 };
 
@@ -787,31 +853,120 @@ async function refreshHistory(){
       const timeStr=d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
       const imgCount=row.img_urls?row.img_urls.length:0;
       const rowTitle = row.title || TITLE_DEFAULT;
-      item.innerHTML=`
+      // Wrapper row (holds red bg + sliding item)
+      const rowEl = document.createElement('div');
+      rowEl.className = 'hist-row';
+
+      // Red delete background
+      const delBg = document.createElement('div');
+      delBg.className = 'hist-del-bg';
+      delBg.innerHTML = '<span>Delete</span>';
+
+      // Sliding foreground item
+      const item = document.createElement('div');
+      item.className = 'hist-item';
+      const thumb = row.img_urls && row.img_urls[0]
+        ? `<img class="hist-thumb" src="${row.img_urls[0]}" loading="lazy">`
+        : `<div class="hist-thumb-placeholder"></div>`;
+      const d = new Date(row.saved_at);
+      const dateStr = d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+      const imgCount = row.img_urls ? row.img_urls.length : 0;
+      item.innerHTML = `
         ${thumb}
         <div class="hist-info">
           <div class="hist-date">${rowTitle}</div>
           <div class="hist-meta">${dateStr} · ${imgCount} photo${imgCount!==1?'s':''}</div>
         </div>
-        <div class="hist-share" data-key="${row.key}">copy link</div>`;
+        <div class="hist-share">copy link</div>`;
 
-      // Click item → load it
-      item.addEventListener('click',e=>{
+      rowEl.appendChild(delBg);
+      rowEl.appendChild(item);
+
+      // ── Swipe logic ──
+      let swipeStartX = 0, swipeStartY = 0, swipeDx = 0;
+      let isSwiping = false, isOpen = false, swipePointerId = null;
+
+      function snapOpen(){ isOpen=true; item.classList.add('swiped'); item.style.transition=''; }
+      function snapClose(){ isOpen=false; item.classList.remove('swiped'); item.style.transform=''; item.style.transition=''; }
+
+      item.addEventListener('pointerdown', e=>{
+        // ignore if tapping copy-link
         if(e.target.classList.contains('hist-share')) return;
-        closeHist();
-        loadFromRecord(row);
-      });
+        swipeStartX = e.clientX;
+        swipeStartY = e.clientY;
+        swipeDx = 0;
+        isSwiping = false;
+        swipePointerId = e.pointerId;
+        item.setPointerCapture(e.pointerId);
+        item.style.transition = 'none';
+      }, {passive:true});
 
-      // Share button
-      item.querySelector('.hist-share').addEventListener('click',e=>{
+      item.addEventListener('pointermove', e=>{
+        if(e.pointerId !== swipePointerId) return;
+        const dx = e.clientX - swipeStartX;
+        const dy = e.clientY - swipeStartY;
+        // Only hijack horizontal swipes
+        if(!isSwiping && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        if(!isSwiping){
+          if(Math.abs(dy) > Math.abs(dx)){ swipePointerId=null; return; } // vertical scroll wins
+          isSwiping = true;
+        }
+        swipeDx = dx;
+        // Clamp: already open starts at -80, can't go right past 0
+        const base = isOpen ? -80 : 0;
+        const raw  = base + dx;
+        const clamped = Math.max(-80, Math.min(0, raw));
+        item.style.transform = `translateX(${clamped}px)`;
+      }, {passive:true});
+
+      item.addEventListener('pointerup', e=>{
+        if(e.pointerId !== swipePointerId) return;
+        item.style.transition = '';
+        const base = isOpen ? -80 : 0;
+        const total = base + swipeDx;
+        if(!isSwiping){
+          // Tap: if open, close; else treat as click
+          if(isOpen){ snapClose(); return; }
+          // normal tap — load
+          closeHist(); loadFromRecord(row); return;
+        }
+        // Decide snap based on velocity / distance
+        if(total < -40) snapOpen(); else snapClose();
+        isSwiping = false; swipePointerId = null;
+      }, {passive:true});
+
+      // Tap anywhere else closes open rows
+      histList.addEventListener('pointerdown', e=>{
+        if(isOpen && !rowEl.contains(e.target)) snapClose();
+      }, {passive:true});
+
+      // Copy link
+      item.querySelector('.hist-share').addEventListener('click', e=>{
         e.stopPropagation();
-        const url=new URL(location.href);
-        url.searchParams.set('view',row.key);
+        const url = new URL(location.href);
+        url.searchParams.set('view', row.key);
         navigator.clipboard?.writeText(url.toString()).catch(()=>{});
         showToast('Link copied!');
       });
 
-      histList.appendChild(item);
+      // Delete (tap red bg)
+      delBg.addEventListener('click', async ()=>{
+        rowEl.style.opacity = '0.4';
+        rowEl.style.pointerEvents = 'none';
+        try{
+          await SB.deleteRecord(row.key);
+          await SB.deleteFolder(row.key);
+          rowEl.remove();
+          if(!histList.children.length)
+            histList.innerHTML='<div class="hist-empty">No saved memories yet</div>';
+          showToast('Deleted');
+        }catch(err){
+          rowEl.style.opacity=''; rowEl.style.pointerEvents='';
+          showToast('Delete failed',3000);
+        }
+      });
+
+      histList.appendChild(rowEl);
     });
   }catch(err){
     histList.innerHTML=`<div class="hist-empty">Error loading: ${err.message}</div>`;
