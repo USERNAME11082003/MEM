@@ -480,9 +480,17 @@ const SB = {
 // ═══════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════
-const FRAME_W     = 208;
 const FILM_SENS   = 0.85;   // photo scroll speed
-const HANDLE_DAMP = 0.55;   // joystick sensitivity (lower = less sensitive)
+const HANDLE_DAMP = 0.55;   // joystick sensitivity
+
+// Dynamically read actual frame width (CSS uses clamp so it varies by screen)
+function getFrameW(){
+  const f = filmStrip.querySelector('.film-frame');
+  if(!f) return 208;
+  // offsetWidth + margin-right
+  const style = getComputedStyle(f);
+  return f.offsetWidth + parseFloat(style.marginRight || 0);
+}
 
 let imgFiles     = [];
 let imgObjURLs   = [];
@@ -580,12 +588,13 @@ document.getElementById('imgInput').onchange=e=>{
 //  AUDIO
 // ═══════════════════════════════════════════════════════
 function loadAudioSrc(src){
-  audioEl.src=src;
+  audioEl.src = src;
+  audioEl.loop = false;   // stop at end
   audioEl.load();
-  audioEl.onloadedmetadata=()=>{
-    audioDur=audioEl.duration;
-    audioEl.playbackRate=1;
-    hasAudio=true;
+  audioEl.onloadedmetadata = ()=>{
+    audioDur = audioEl.duration;
+    audioEl.playbackRate = 1;
+    hasAudio = true;
     buildWaveform();
     updateStatus();
   };
@@ -636,7 +645,7 @@ function updateWaveform(){
   if(!bars.length) return;
 
   // Scroll waveform in the same direction as photos, driven by filmOffset
-  const onePass = imgObjURLs.length * FRAME_W || 1;
+  const onePass = imgObjURLs.length * getFrameW() || 1;
   const wrapped = ((filmOffset % onePass) + onePass) % onePass;
   const waveProgress = wrapped / onePass; // 0–1, loops smoothly
 
@@ -666,10 +675,9 @@ function updateWaveform(){
 // ═══════════════════════════════════════════════════════
 function renderFilm(){
   if(!imgObjURLs.length) return;
-  const onePass = imgObjURLs.length * FRAME_W;          // width of one set of photos
-  // Keep filmOffset within [0, onePass) by normalising, then shift into copy 2 of 5
+  const fw = getFrameW();
+  const onePass = imgObjURLs.length * fw;
   const wrapped = ((filmOffset % onePass) + onePass) % onePass;
-  // Offset into copy index 2 (0-based), so copies 0-1 are behind and 3-4 are ahead
   const tx = wrapped + 2 * onePass;
   filmStrip.style.transform = `translateX(${-tx}px)`;
   timeDsp.textContent = fmt(hasAudio ? audioEl.currentTime : 0) + ' / ' + fmt(audioDur);
@@ -716,7 +724,6 @@ keyHandle.addEventListener('pointerdown', e=>{
   keyHandle.setPointerCapture(e.pointerId);
   const p = getPivotScreen();
   lastAngle = ang(p.x, p.y, e.clientX, e.clientY);
-  if(hasAudio){ audioEl.play().catch(()=>{}); audioEl.pause(); }
   handleArea.classList.add('winding');
 }, {passive:false});
 
@@ -724,7 +731,7 @@ window.addEventListener('pointerup', ()=>{
   if(!isDragging) return;
   isDragging = false;
   handleArea.classList.remove('winding');
-  if(hasAudio) audioEl.pause();
+  if(hasAudio) audioEl.pause();  // stop handle = pause
   lastAngle = null;
 });
 
@@ -740,17 +747,25 @@ window.addEventListener('pointermove', e=>{
   keyRot += d;
   keyArm.setAttribute('transform', `rotate(${keyRot} ${PIVOT_SVG_X} ${PIVOT_SVG_Y})`);
 
-  // Apply damping so small wrist movements don't over-scroll
   const eff = d * HANDLE_DAMP;
 
   if(Math.abs(d) > 0.5){
     filmOffset += eff * FILM_SENS;
     renderFilm();
     if(hasAudio && audioDur > 0){
-      if(d > 0){ audioEl.playbackRate=1; if(audioEl.paused) audioEl.play().catch(()=>{}); }
-      else audioEl.pause();
+      if(d > 0){
+        // Clockwise — play forward
+        audioEl.playbackRate = 1;
+        if(audioEl.paused) audioEl.play().catch(()=>{});
+      } else {
+        // Counter-clockwise — rewind (scrub currentTime back)
+        audioEl.pause();
+        const rewindAmt = Math.abs(eff) * FILM_SENS * (audioDur / (imgObjURLs.length * getFrameW() || 1));
+        audioEl.currentTime = Math.max(0, audioEl.currentTime - rewindAmt);
+      }
     }
   } else {
+    // Dead zone — pause
     if(hasAudio) audioEl.pause();
   }
   updateWaveform();
