@@ -80,7 +80,21 @@ body{
 
 /* Header */
 .header{text-align:center;padding:4px 0 12px;flex-shrink:0}
-.header h1{font-family:'Cormorant Garamond',serif;font-size:clamp(16px,4vw,22px);font-style:italic;font-weight:300;letter-spacing:.08em;color:rgba(245,240,232,0.62)}
+.header h1{
+  font-family:'Cormorant Garamond',serif;
+  font-size:clamp(16px,4vw,22px);font-style:italic;font-weight:300;
+  letter-spacing:.08em;color:rgba(245,240,232,0.62);
+  outline:none;cursor:text;
+  border-bottom:1px solid transparent;
+  transition:border-color .2s;
+  display:inline-block;
+  min-width:60px;
+  padding:0 2px;
+}
+.header h1:focus{
+  border-bottom-color:rgba(245,240,232,0.2);
+}
+.header h1.placeholder{color:rgba(245,240,232,0.25)}
 
 /* ─── Film viewer ─── */
 .viewer{
@@ -263,7 +277,9 @@ body{
     </div>
   </div>
 
-  <div class="header"><h1>Walk memories</h1></div>
+  <div class="header">
+    <h1 id="memTitle" contenteditable="true" spellcheck="false">New memory</h1>
+  </div>
 
   <div class="viewer">
     <div class="time-disp" id="timeDsp">0:00 / 0:00</div>
@@ -436,6 +452,29 @@ function tick(){
     n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0');
 }
 tick(); setInterval(tick,15000);
+
+// ═══════════════════════════════════════════════════════
+//  EDITABLE TITLE
+// ═══════════════════════════════════════════════════════
+const memTitle = document.getElementById('memTitle');
+const TITLE_DEFAULT = 'New memory';
+
+memTitle.addEventListener('focus', ()=>{
+  if(memTitle.textContent.trim() === TITLE_DEFAULT){
+    memTitle.textContent = '';
+  }
+  memTitle.classList.remove('placeholder');
+});
+memTitle.addEventListener('blur', ()=>{
+  if(!memTitle.textContent.trim()){
+    memTitle.textContent = TITLE_DEFAULT;
+    memTitle.classList.add('placeholder');
+  }
+});
+// Prevent newlines — Enter = blur
+memTitle.addEventListener('keydown', e=>{
+  if(e.key === 'Enter'){ e.preventDefault(); memTitle.blur(); }
+});
 
 // (Responsive layout now handled entirely by CSS)
 
@@ -695,6 +734,7 @@ saveLink.addEventListener('click',async()=>{
     await SB.insertRecord({
       key,
       saved_at: new Date().toISOString(),
+      title: memTitle.textContent.trim() || TITLE_DEFAULT,
       img_urls: imgUrls,
       audio_url: audioUrl,
       wave_heights: waveHeights,
@@ -746,11 +786,12 @@ async function refreshHistory(){
       const dateStr=d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
       const timeStr=d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
       const imgCount=row.img_urls?row.img_urls.length:0;
+      const rowTitle = row.title || TITLE_DEFAULT;
       item.innerHTML=`
         ${thumb}
         <div class="hist-info">
-          <div class="hist-date">${dateStr} · ${timeStr}</div>
-          <div class="hist-meta">${imgCount} photo${imgCount!==1?'s':''}</div>
+          <div class="hist-date">${rowTitle}</div>
+          <div class="hist-meta">${dateStr} · ${imgCount} photo${imgCount!==1?'s':''}</div>
         </div>
         <div class="hist-share" data-key="${row.key}">copy link</div>`;
 
@@ -781,6 +822,9 @@ async function refreshHistory(){
 //  LOAD FROM SUPABASE RECORD
 // ═══════════════════════════════════════════════════════
 function loadFromRecord(rec){
+  // Restore title
+  memTitle.textContent = rec.title || TITLE_DEFAULT;
+  memTitle.classList.remove('placeholder');
   buildFilm(rec.img_urls);
   if(rec.wave_heights) loadWaveform(rec.wave_heights);
   else buildWaveform();
