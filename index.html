@@ -639,36 +639,89 @@ function appendBar(h){
   waveformEl.appendChild(b);
 }
 
-function updateWaveform(){
-  if(!waveHeights.length) return;
-  const bars=waveformEl.querySelectorAll('.wbar');
-  if(!bars.length) return;
+// ═══════════════════════════════════════════════════════
+//  WAVEFORM  — driven by audio currentTime
+// ═══════════════════════════════════════════════════════
+const BAR_W = 5; // bar width + gap in px
 
-  // Scroll waveform in the same direction as photos, driven by filmOffset
-  const onePass = imgObjURLs.length * getFrameW() || 1;
-  const wrapped = ((filmOffset % onePass) + onePass) % onePass;
-  const waveProgress = wrapped / onePass; // 0–1, loops smoothly
-
-  const playedCount = Math.floor(waveProgress * bars.length);
-  bars.forEach((b,i)=>b.className='wbar '+(i<playedCount?'played':'unplayed'));
-
-  // Pan waveform strip so the playhead stays centred
-  const wrapW = waveformEl.parentElement.offsetWidth;
-  const off = playedCount * 5 - wrapW / 2;
-  waveformEl.style.transform=`translateX(${-Math.max(0,off)}px)`;
-
-  // Also update audio time display to match waveform position
-  if(audioDur && hasAudio){
-    const audioProg = audioEl.currentTime / audioDur;
-    const ac = Math.floor(audioProg * bars.length);
-    // override colour: audio played = bright, film lead = dim
-    bars.forEach((b,i)=>{
-      if(i < ac) b.className='wbar played';
-      else if(i < playedCount) b.className='wbar unplayed';
-      else b.className='wbar unplayed';
-    });
+function buildWaveform(){
+  waveHeights = [];
+  waveformEl.innerHTML = '';
+  for(let i = 0; i < 160; i++){
+    const h = 8 + Math.random() * 52;
+    waveHeights.push(h);
+    appendBar(h);
   }
 }
+
+function loadWaveform(heights){
+  waveHeights = heights;
+  waveformEl.innerHTML = '';
+  heights.forEach(h => appendBar(h));
+}
+
+function appendBar(h){
+  const b = document.createElement('div');
+  b.className = 'wbar unplayed';
+  b.style.height = h + 'px';
+  waveformEl.appendChild(b);
+}
+
+// Animate bar heights around the playhead for a "live" feel
+let waveAnimFrame = null;
+function animateWave(){
+  if(!hasAudio || !audioDur) return;
+  const bars = waveformEl.querySelectorAll('.wbar');
+  if(!bars.length) return;
+
+  const prog   = audioEl.currentTime / audioDur;          // 0–1
+  const centre = Math.floor(prog * bars.length);          // current bar index
+
+  bars.forEach((b, i) => {
+    // Colour: played vs unplayed
+    b.className = 'wbar ' + (i <= centre ? 'played' : 'unplayed');
+
+    // Height: bars near playhead pulse slightly
+    const dist  = Math.abs(i - centre);
+    const pulse = dist < 8 ? 1 + 0.18 * Math.cos((dist / 8) * Math.PI) * (audioEl.paused ? 0 : 1) : 1;
+    b.style.height = (waveHeights[i] * pulse).toFixed(1) + 'px';
+  });
+
+  // Scroll strip so the playhead line stays centred
+  const wrapW = waveformEl.parentElement.offsetWidth;
+  const off   = centre * BAR_W - wrapW / 2;
+  waveformEl.style.transform = `translateX(${-Math.max(0, off)}px)`;
+
+  waveAnimFrame = requestAnimationFrame(animateWave);
+}
+
+function startWaveAnim(){
+  if(waveAnimFrame) cancelAnimationFrame(waveAnimFrame);
+  animateWave();
+}
+function stopWaveAnim(){
+  if(waveAnimFrame){ cancelAnimationFrame(waveAnimFrame); waveAnimFrame = null; }
+  // Do one final static update so colours stay correct when paused
+  if(hasAudio && audioDur){
+    const bars  = waveformEl.querySelectorAll('.wbar');
+    const prog  = audioEl.currentTime / audioDur;
+    const c     = Math.floor(prog * bars.length);
+    bars.forEach((b, i) => {
+      b.className  = 'wbar ' + (i <= c ? 'played' : 'unplayed');
+      b.style.height = waveHeights[i] + 'px';
+    });
+    const wrapW = waveformEl.parentElement.offsetWidth;
+    waveformEl.style.transform = `translateX(${-Math.max(0, c * BAR_W - wrapW / 2)}px)`;
+  }
+}
+
+// Hook into audio events
+audioEl.addEventListener('play',  startWaveAnim);
+audioEl.addEventListener('pause', stopWaveAnim);
+audioEl.addEventListener('ended', stopWaveAnim);
+audioEl.addEventListener('seeked', ()=>{ if(audioEl.paused) stopWaveAnim(); });
+
+function updateWaveform(){ /* no-op — animation loop handles it now */ }
 
 // ═══════════════════════════════════════════════════════
 //  FILM RENDER
