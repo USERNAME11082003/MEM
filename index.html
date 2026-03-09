@@ -843,15 +843,6 @@ async function refreshHistory(){
     if(!rows.length){histList.innerHTML='<div class="hist-empty">No saved memories yet</div>';return;}
     histList.innerHTML='';
     rows.forEach(row=>{
-      const item=document.createElement('div');
-      item.className='hist-item';
-      const thumb=row.img_urls&&row.img_urls[0]
-        ?`<img class="hist-thumb" src="${row.img_urls[0]}" loading="lazy">`
-        :`<div class="hist-thumb-placeholder"></div>`;
-      const d=new Date(row.saved_at);
-      const dateStr=d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
-      const timeStr=d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-      const imgCount=row.img_urls?row.img_urls.length:0;
       const rowTitle = row.title || TITLE_DEFAULT;
       // Wrapper row (holds red bg + sliding item)
       const rowEl = document.createElement('div');
