@@ -793,10 +793,8 @@ window.addEventListener('pointermove', e=>{
         audioEl.playbackRate = 1;
         if(audioEl.paused) audioEl.play().catch(()=>{});
       } else {
-        // Counter-clockwise — rewind (scrub currentTime back)
+        // Counter-clockwise — just pause, never touch currentTime
         audioEl.pause();
-        const rewindAmt = Math.abs(eff) * FILM_SENS * (audioDur / (imgObjURLs.length * getFrameW() || 1));
-        audioEl.currentTime = Math.max(0, audioEl.currentTime - rewindAmt);
       }
     }
   } else {
@@ -806,6 +804,12 @@ window.addEventListener('pointermove', e=>{
   updateWaveform();
   lastAngle = a;
 }, {passive:false});
+
+// Only when audio finishes naturally → restart from beginning
+audioEl.addEventListener('ended', ()=>{
+  audioEl.currentTime = 0;
+  audioEl.play().catch(()=>{});
+});
 
 audioEl.addEventListener('timeupdate',()=>{renderFilm();updateWaveform();});
 
